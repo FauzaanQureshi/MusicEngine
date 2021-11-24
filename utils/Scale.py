@@ -74,14 +74,13 @@ class Scale:
         return CircularOctave(notes)
 
 
-    def chord(self, num, inversion=0):
+    def chord(self, num, inversion=0, low_notes=True):
+        _keys = (0, 2, 4)
+        if low_notes:
+            _keys = (-7, -3) + _keys
+            
         self.intervals.root_idx = num-1
-        chord = (
-            self.intervals[-7],
-            self.intervals[0],
-            self.intervals[2],
-            self.intervals[4]
-        )
+        chord = self.intervals[_keys]
         self.intervals.root_idx = self.key-1
         return chord
         

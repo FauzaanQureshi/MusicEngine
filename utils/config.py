@@ -1,3 +1,3 @@
 CONFIG = dict(
-    java_path="",
+    java_path="C:\\Users\\Fauzaan\\Desktop\\",
 )
