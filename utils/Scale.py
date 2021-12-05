@@ -75,13 +75,12 @@ class Scale:
 
 
     def chord(self, num, inversion=0, low_notes=True):
+        #num = (num-1)%7
         _keys = (0, 2, 4)
         if low_notes:
             _keys = (-7, -3) + _keys
-            
-        self.intervals.root_idx = num-1
+        _keys = tuple(_+num for _ in _keys)
         chord = self.intervals[_keys]
-        self.intervals.root_idx = self.key-1
         return chord
         
 
