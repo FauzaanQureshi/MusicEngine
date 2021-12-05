@@ -55,6 +55,8 @@ class CircularOctave:
             res = []
             for i in index:
                 i, oct = divmod(self._cur+i, len(self))[::-1]
+                if self._elems[i] < self.root:
+                    oct += 1
                 res.append((self._elems[i], oct))
             return tuple(res)
 
