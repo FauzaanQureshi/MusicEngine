@@ -1,17 +1,23 @@
+from io import SEEK_END
 from os import chdir, getpid, remove
-from subprocess import Popen, PIPE
+from subprocess import Popen, PIPE, DEVNULL
 from multiprocessing import Process, Pipe
 from utils.config import CONFIG
 
 
-def util(conn):
+def util(conn, err):
     chdir(CONFIG.get('java_path', '..'))
-    print("Child Process: ", getpid(), PIPE)
-    with open("../Error.log", 'w+') as err:
-        p = Popen(['java', 'JavaProg.MusicSheetReader', 'p'], stdin=PIPE, stdout=PIPE, stderr=err)
-        while p.poll() is None:
+    print("MIDI Process: ", getpid(), PIPE)
+    p = Popen(['java', 'JavaProg.MusicSheetReader', 'p'], stdin=PIPE, stdout=DEVNULL, stderr=PIPE)
+    while p.poll() is None:
+        try:
+            #err.send("::"*10+"JavaErr"+"::"*10+f"-> {[_ for _ in p.stderr]}")
             p.stdin.write(conn.recv().encode())
             p.stdin.flush()
+        except OSError:
+            print("SubP Poll: ", p.poll())
+    #err.send("::"*10+"JavaErr"+"::"*10+f"-> {[_ for _ in p.stderr]}")
+    print("::"*10+"JavaErr"+"::"*10+f"-> {[_ for _ in p.stderr]}")
     #err.close()
     #remove("../Error.log")
     
@@ -30,49 +36,61 @@ class MidiPlayer:
             super().__init__(self.message)
     
     
-    class InvalidInstrument(Exception):
-        def __init__(self):
-            self.message = "Instrument code must be between (0-127)\n"
-            super().__init__(self.message)
     
+    class Instrument(int):        
+        class InvalidInstrument(Exception):
+            def __init__(self):
+                self.message = "Instrument code must be between (0-127)\n"
+                super().__init__(self.message)
+        
+        def __new__(cls, *args, **kwargs):
+            if len(args)>0 and not (0 <= int(args[0]) < 128):
+                raise MidiPlayer.Instrument.InvalidInstrument()
+            return super().__new__(cls, *args, **kwargs)
+        
+        @property
+        def name(self):
+            if 0 <= self < 128:
+                return self.instruments[self]
+            raise self.InvalidInstrument()
+        
 
     def __init__(self, file=None, fileno=4):
         self.__reader__, self.__writer__ = Pipe(False)
-        self._process = Process(target=util, args=(self.__reader__,))
-        print("INIT MidiPlayer", getpid())
-        self._running = False
+        self.__err_reader__, self.__err_writer__ = Pipe(True)
+        self._process = Process(target=util, args=(self.__reader__, self.__err_writer__))
+        self.__instrument = MidiPlayer.Instrument()
     
-    def change_instrument(self, instrument):
-        if isinstance(instrument, str):
-            if instrument.isdigit():
-                self.__writer__.send(f"I<{int(instrument)%128}>")
-            else:
-                __ = []
-                for _ in instrument:
-                    if _.isdigit():
-                        __.append(_)
-                
-                self.__writer__.send(f"I<{int(''.join(__))%128}>")
-        elif isinstance(instrument, int):
-            self.__writer__.send(f"I<{instrument%128}>")
-        else:
-            raise MidiPlayer.InvalidInstrument()
+    @property
+    def instrument(self):
+        return self.__instrument
+    
+    @instrument.setter
+    def instrument(self, instrument):
+        self.__instrument = MidiPlayer.Instrument(instrument)
+        self.play(f"I<{self.instrument}>")
         
     
     def listen(function):
-        def _wrapper(*args, **kwargs):
-            function(*args, **kwargs)
-            print("MIDI ERROR Poll", args[0].rc.poll())
-            if args[0].rc.poll():#MidiPlayer.errorListener and MidiPlayer.errorListner.file.tell()!=0:
-                print(args[0].rc.recv())
-                args[0].rc.close()
-                raise MidiPlayer.MIDIError()
+        def _wrapper(self, *args, **kwargs):
+            print("MIDI ERROR Poll", self.__err_reader__.poll(), self.__err_writer__.closed)
+            if self.__err_reader__.poll() or self.__err_writer__.closed:
+                print(self.__err_reader__.recv())
+            #    self.__reader__.close()
+            #    self.__err_reader__.close()
+            #    raise MidiPlayer.MIDIError()
+            function(self, *args, **kwargs)
+            if self.__err_reader__.poll() or self.__err_writer__.closed:
+                print(self.__err_reader__.recv())
+            #    self.__reader__.close()
+            #    self.__err_reader__.close()
+            #    raise MidiPlayer.MIDIError()
         
         return _wrapper
         
     #@listen
     def play(self, notes):
-        if not self._running:
+        if not self.running:
             raise self.UninitializedError()
 
         self.__writer__.send(notes)
@@ -83,16 +101,22 @@ class MidiPlayer:
     def start(self):
         self._process.start()
         print("start process alive ", self._process.is_alive())
-        self._running = True
 
     def stop(self):
         self.play('q')
         self._process.terminate()
-        self._running = False
     
     @property
     def running(self):
-        return self._running
+        return self._process.is_alive()
+        
+    @property
+    def mute(self):
+        try:
+            self.play('m')
+            return True
+        except self.UninitializedError:
+            return False
         
     def refresh(self):
         self.play('q')
@@ -102,4 +126,137 @@ class MidiPlayer:
         self.start()
         
     def __del__(self):
-        self._process.terminate()
+        if self.running:
+            self._process.terminate()
+
+
+MidiPlayer.Instrument.instruments = (
+    "Acoustic Grand Piano",
+    "Bright Acoustic Piano",
+    "Electric Grand Piano",
+    "Honky-tonk Piano",
+    "Electric Piano 1",
+    "Electric Piano 2",
+    "Harpsichord",
+    "Clavi",
+    "Celesta",
+    "Glockenspiel",
+    "Music Box",
+    "Vibraphone",
+    "Marimba",
+    "Xylophone",
+    "Tubular Bells",
+    "Dulcimer",
+    "Drawbar Organ",
+    "Percussive Organ",
+    "Rock Organ",
+    "Church Organ",
+    "Reed Organ",
+    "Accordion",
+    "Harmonica",
+    "Tango Accordion",
+    "Acoustic Guitar (nylon)",
+    "Acoustic Guitar (steel)",
+    "Electric Guitar (jazz)",
+    "Electric Guitar (clean)",
+    "Electric Guitar (muted)",
+    "Overdriven Guitar",
+    "Distortion Guitar",
+    "Guitar harmonics",
+    "Acoustic Bass",
+    "Electric Bass (finger)",
+    "Electric Bass (pick)",
+    "Fretless Bass",
+    "Slap Bass 1",
+    "Slap Bass 2",	
+    "Synth Bass 1",
+    "Synth Bass 2 10",
+    "Violin",
+    "Viola",
+    "Cello",
+    "Contrabass",
+    "Tremolo Strings",
+    "Pizzicato Strings",
+    "Orchestral Harp",
+    "Timpani",
+    "String Ensemble 1",
+    "String Ensemble 2",
+    "SynthStrings 1",
+    "SynthStrings 2",
+    "Choir Aahs",
+    "Voice Oohs",
+    "Synth Voice",
+    "Orchestra Hit",
+    "Trumpet",
+    "Trombone",
+    "Tuba",
+    "Muted Trumpet",
+    "French Horn",
+    "Brass Section",
+    "SynthBrass 1",
+    "SynthBrass 2",
+    "Soprano Sax",
+    "Alto Sax",
+    "Tenor Sax",
+    "Baritone Sax",
+    "Oboe",
+    "English Horn",
+    "Bassoon",
+    "Clarinet",
+    "Piccolo",
+    "Flute",
+    "Recorder",
+    "Pan Flute",
+    "Blown Bottle",
+    "Shakuhachi",
+    "Whistle",
+    "Ocarina",
+    "Lead 1 (square)",
+    "Lead 2 (sawtooth)",
+    "Lead 3 (calliope)",
+    "Lead 4 (chiff)",
+    "Lead 5 (charang)",
+    "Lead 6 (voice)",
+    "Lead 7 (fifths)",
+    "Lead 8 (bass + lead)",
+    "Pad 1 (new age)",
+    "Pad 2 (warm)",
+    "Pad 3 (polysynth)",
+    "Pad 4 (choir)",
+    "Pad 5 (bowed)",
+    "Pad 6 (metallic)",
+    "Pad 7 (halo)",
+    "Pad 8 (sweep)",
+    "FX 1 (rain)",
+    "FX 2 (soundtrack)",
+    "FX 3 (crystal)",
+    "FX 4 (atmosphere)",
+    "FX 5 (brightness)",
+    "FX 6 (goblins)",
+    "FX 7 (echoes)",
+    "FX 8 (sci-fi)",
+    "Sitar",
+    "Banjo",
+    "Shamisen",
+    "Koto",
+    "Kalimba",
+    "Bag pipe",
+    "Fiddle",
+    "Shanai",
+    "Tinkle Bell",
+    "Agogo",
+    "Steel Drums",
+    "Woodblock",
+    "Taiko Drum",
+    "Melodic Tom",
+    "Synth Drum",
+    "Reverse Cymbal",
+    "Guitar Fret Noise",
+    "Breath Noise",
+    "Seashore",
+    "Bird Tweet",
+    "Telephone Ring",
+    "Helicopter",
+    "Applause",
+    "Gunshot"
+)

@@ -14,7 +14,7 @@ from time import sleep
 
 def seconds_to_bar(sec:float, bpm:int):
     '''
-    Covert Seconds to Bar.
+    Convert Seconds to Bar.
     
     @params:
         sec: float
@@ -25,7 +25,7 @@ def seconds_to_bar(sec:float, bpm:int):
 
 def bar_to_seconds(bar:int, bpm:int):
     '''
-    Covert Bar to Seconds.
+    Convert Bar to Seconds.
     
     @params:
         bar: int
@@ -166,7 +166,7 @@ class Engine:
         def _check_if_midi_(_):
             raise Exception(_)
         midi:bool
-        try:
+        try:    # Loop through blob to find first non-empty item and check if it's midi. Raise exception to exit loop.
             [_check_if_midi_(False) if isinstance(_[0], str) else _check_if_midi_(True) for _ in blob if len(_)>0]
         except Exception as e:
             midi = e.args[0]
@@ -178,13 +178,29 @@ class Engine:
                 sleep(self._delay)
                 continue
             if midi:
-                _ = ("" if sustain else "m") + "".join(self.scale.semitones_to_letter_notes(b, root_octave=octave))
+                _ = ("" if sustain else "m") + "".join(self.scale.semitones_to_letter_notes(b, octave=octave))
             else:
                 _ = ("" if sustain else "m") + "".join(b)
             if verbose:
                 print(_)
             self.scale.midi.play(_)
             sleep(self._delay)
+    
+    def rhythm(self, rhy):
+        _instrument = self.scale.midi.instrument
+        self.scale.midi.instrument = 115
+        for __ in range(4):
+            _ = True
+            for r in rhy:
+                if r:
+                    print("O", end="")
+                    self.scale.midi.play("mG4" if _ else "mC#5")
+                    _ = False
+                else:
+                    print("-", end="")
+                    sleep(rhy.min_interval)
+            print()
+        self.scale.midi.instrument = _instrument
     
     def __repr__(self):
         return self.__class__.__name__
@@ -203,6 +219,8 @@ class StupidEngine(Engine):
             inversion: int - To be Implemented
             low_notes: bool - True: Adds 1st and 5th Note from 1 octave lower in a chord
         '''
+        if len(self.chord_history)>128:
+            self.chord_history.clear()
         oct = [0, 1, 2]
         choi = [0,1,2,3,4,5,6,7]
         wts = [silence_ratio]+[(1-silence_ratio)/7]*7
@@ -216,13 +234,15 @@ class StupidEngine(Engine):
         @params:
             silence_ratio: float - Ratio of Silence:Notes. Ex.: 1:4
         '''
+        if len(self.note_history)>128:
+            self.note_history.clear()
         oct = [0, 1, 2]
         choi = [0,1,2,3,4,5,6,7]
         wts = [silence_ratio]+[(1-silence_ratio)/7]*7
         self.note_history.append((lambda x: self.scale.intervals[choice(oct)+x,] if x>0 else () )(choices(choi, wts)[0]))
         return self.note_history[-1]
     
-    def get_chord_sequence(self, *, duration=4.0, low_notes=True, octave=3, silence_ratio=0.25, midi=False):
+    def get_chord_sequence(self, *, duration=4.0, low_notes=True, octave=3, silence_ratio=0.25, midi=False, **kwargs):
         '''
         Empties chord_history. Repeatedly calls next_chord to generate a sequence.
         Returns a sequence of chords and Inserts it to the chord_history
@@ -238,11 +258,11 @@ class StupidEngine(Engine):
         self.chord_history = []
         _len = ceil(duration/self._delay)
         for _ in range(_len):
-            self.next_chord(silence_ratio=silence_ratio, low_notes=low_notes)
+            self.next_chord(silence_ratio=silence_ratio, low_notes=low_notes, **kwargs)
             
         if not midi:
             return [
-                self.scale.semitones_to_letter_notes(_, root_octave=octave)
+                self.scale.semitones_to_letter_notes(_, octave=octave)
                 for _ in self.chord_history
             ]
         return self.chord_history
@@ -266,7 +286,7 @@ class StupidEngine(Engine):
             
         if not midi:
             return [
-                self.scale.semitones_to_letter_notes(_, root_octave=octave)
+                self.scale.semitones_to_letter_notes(_, octave=octave)
                 for _ in self.note_history
             ]
         return self.note_history

@@ -1,3 +1,4 @@
+from typing import Tuple
 from utils.MidiPlayer import MidiPlayer
 from utils.CircularOctave import CircularOctave
 from time import sleep
@@ -7,9 +8,9 @@ class Scale:
     note_name = ('C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B')
     semitones = CircularOctave(*range(1,13))
     rules = dict(
-        major_scale = (1,1,0,1,1,1,0),
-        minor_scale = (1,0,1,1,0,1,1),
-        harmonic_scale = (1,0,1,1,0,2,1),
+        major = (1,1,0,1,1,1,0),
+        minor = (1,0,1,1,0,1,1),
+        harmonic = (1,0,1,1,0,2,1),
         melodic_minor = (1,0,1,1,1,1,0),
     )
     
@@ -35,7 +36,6 @@ class Scale:
         self.semitones.root_idx = self.key-1
         self.rule = self.rules.get(self.name, None)
         self.intervals = self.get_intervals()
-        print(self.intervals)
         self.notes = {_:self.note_name[_-1] for _ in self.intervals}
     
     
@@ -46,10 +46,10 @@ class Scale:
             return _wrapper
         
         def _chord(_obj, func):
-            def _wrapper(*args, **kwargs):
+            def _wrapper(*args, octave=3, **kwargs):
                 _obj.midi.play(
                     "".join(
-                        _obj.semitones_to_letter_notes(func(*args, **kwargs))
+                        _obj.semitones_to_letter_notes(func(*args, **kwargs), octave=octave)
                     )
                 )
             return _wrapper
@@ -76,10 +76,21 @@ class Scale:
 
     def chord(self, num, inversion=0, low_notes=True):
         #num = (num-1)%7
-        _keys = (0, 2, 4)
+        inv = {
+            0: (0,0,0),
+            1: (2,2,3),
+            2: (-3,-2,-2),
+        }
+        _keys = tuple(
+            i+k
+            for i,k in zip(
+                (0, 2, 4),
+                inv[inversion%3],
+            )
+        )
         if low_notes:
-            _keys = (-7, -3) + _keys
-        _keys = tuple(_+num for _ in _keys)
+            _keys = (-7+inv[inversion%3][0], -3+inv[inversion%3][-1]) + _keys
+        _keys = tuple(_+num-1 for _ in _keys)
         chord = self.intervals[_keys]
         return chord
         
@@ -285,7 +296,9 @@ class Scale:
                 scale.close_midi()
                 break
 
-
+    def __repr__(self):
+        return f"<Scale: {self.note_name[self.key-1]} {self.name}>"
+    
     def __str__(self):
         return f"{self.name} in Key of {self.note_name[self.key-1]} - {tuple(self.note_name[i-1] for i in self.intervals)}"
 
@@ -300,10 +313,28 @@ class Scale:
 
 
     @staticmethod
-    def semitones_to_letter_notes(*t, root_octave=4):
+    def semitones_to_letter_notes(*t, octave=4):
         res = []
         for _ in t[0]:
             n, oct = _
-            res.append(f"{Scale.note_name[n-1]}{root_octave+oct}")
+            res.append(f"{Scale.note_name[n-1]}{octave+oct}")
         return tuple(res)
 
+
+def find_scale(*notes)->Tuple[Scale]:
+    if isinstance(notes[0], str) and not notes[0].isdigit():
+        notes = tuple(Scale.note_name.index(_.upper())+1 for _ in notes)
+    elif isinstance(notes[0], str):
+        notes = tuple(int(_) for _ in notes)
+    notes = set(notes)
+    
+    scales = []
+    for key in Scale.note_name:
+        for rule in Scale.rules.keys():
+            _ = Scale(key, rule)
+            if notes.issubset(_.intervals):
+                scales.append(_)
+            else:
+                del _
+    
+    return tuple(scales)
